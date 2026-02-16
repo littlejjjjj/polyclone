@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  balance   Float    @default(10000)
+  createdAt DateTime @default(now())
+
+  orders    Order[]
+  positions Position[]
+}
+
+model Market {
+  id        Int      @id @default(autoincrement())
+  question  String
+  resolved  Boolean  @default(false)
+  outcome   String?
+  createdAt DateTime @default(now())
+
+  orders    Order[]
+  trades    Trade[]
+  candles   Candle[]
+}
+
+model Order {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  marketId  Int
+
+  side      String
+  direction String
+  type      String
+
+  price     Float
+  quantity  Float
+  filled    Float    @default(0)
+
+  status    String   @default("OPEN")
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+  market    Market   @relation(fields: [marketId], references: [id])
+}
+
+model Trade {
+  id        Int      @id @default(autoincrement())
+  marketId  Int
+
+  buyerId   Int
+  sellerId  Int
+
+  side      String
+  price     Float
+  quantity  Float
+  createdAt DateTime @default(now())
+
+  market    Market   @relation(fields: [marketId], references: [id])
+}
+
+model Position {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  marketId  Int
+
+  side      String
+  shares    Float    @default(0)
+  avgPrice  Float    @default(0)
+
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Candle {
+  id        Int      @id @default(autoincrement())
+  marketId  Int
+
+  interval  String
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    Float
+
+  timestamp DateTime
+
+  market    Market   @relation(fields: [marketId], references: [id])
+}

@@ -1,0 +1,34 @@
+# Node modules
+node_modules/
+
+# Prisma DB
+*.db
+*.db-journal
+
+# Environment variables
+.env
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Vite / React build
+dist/
+build/
+
+# VSCode settings
+.vscode/
+
+# Prisma generated
+backend/prisma/migrations/
+
+# Coverage
+coverage/
