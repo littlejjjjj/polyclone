@@ -1,93 +1,84 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
+import "./App.css";
 
 const API = "http://localhost:4000";
 
 export default function App() {
   const [markets, setMarkets] = useState([]);
-  const [question, setQuestion] = useState("");
-  const [username, setUsername] = useState("demo");
-  const [user, setUser] = useState(null);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    loadMarkets();
+  }, []);
 
   async function loadMarkets() {
     const res = await axios.get(`${API}/markets`);
     setMarkets(res.data);
   }
 
-  async function createMarket() {
-    if (!question) return;
-
-    await axios.post(`${API}/markets`, { question });
-    setQuestion("");
-    loadMarkets();
-  }
-
-  async function createUser() {
-    const res = await axios.post(`${API}/users`, { username });
-    setUser(res.data);
-  }
-
-  useEffect(() => {
-    loadMarkets();
-  }, []);
+  const filteredMarkets = markets.filter((m) =>
+    m.question.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
-    <div style={{ padding: 30, fontFamily: "Arial" }}>
-      <h1>Polymarket Clone (Simulation)</h1>
+    <>
+      {/* NAVBAR */}
+      <div className="navbar">
+        <div className="logo">Polyclone</div>
 
-      <div style={{ marginTop: 20, padding: 15, border: "1px solid #ccc" }}>
-        <h3>Create Demo User</h3>
-        <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="username"
-        />
-        <button onClick={createUser} style={{ marginLeft: 10 }}>
-          Create User
-        </button>
+        <div className="searchbar">
+          <input
+            placeholder="Search markets..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
 
-        {user && (
-          <p style={{ color: "green" }}>
-            User created: {user.username} | Balance: ${user.balance}
-          </p>
+        <div className="nav-actions">
+          <button className="btn">Log In</button>
+          <button className="btn btn-primary">Sign Up</button>
+        </div>
+      </div>
+
+      {/* MAIN */}
+      <div className="container">
+        <div className="section-title">Trending Markets</div>
+
+        <div className="grid">
+          {filteredMarkets.map((m) => (
+            <div key={m.id} className="card">
+              <div className="market-title">{m.question}</div>
+
+              <div className="market-meta">
+                Market ID: {m.id} •{" "}
+                {m.resolved ? (
+                  <span className="badge">Resolved</span>
+                ) : (
+                  <span className="badge">Live</span>
+                )}
+              </div>
+
+              <div className="market-actions">
+                <Link className="market-btn yes" to={`/market/${m.id}`}>
+                  YES
+                </Link>
+
+                <Link className="market-btn no" to={`/market/${m.id}`}>
+                  NO
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {filteredMarkets.length === 0 && (
+          <div style={{ marginTop: "20px", color: "rgba(255,255,255,0.5)" }}>
+            No markets found.
+          </div>
         )}
       </div>
-
-      <div style={{ marginTop: 20, padding: 15, border: "1px solid #ccc" }}>
-        <h3>Create Market</h3>
-        <input
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Will Bitcoin hit $200k in 2026?"
-          style={{ width: 400 }}
-        />
-        <button onClick={createMarket} style={{ marginLeft: 10 }}>
-          Create Market
-        </button>
-      </div>
-
-      <h2 style={{ marginTop: 30 }}>Markets</h2>
-
-      {markets.map((m) => (
-        <div
-          key={m.id}
-          style={{
-            padding: 12,
-            marginTop: 10,
-            border: "1px solid #444",
-            borderRadius: 6,
-          }}
-        >
-          <Link to={`/market/${m.id}`} style={{ fontWeight: "bold" }}>
-            {m.question}
-          </Link>
-
-          <div style={{ fontSize: 12, color: "gray" }}>
-            Market ID: {m.id} | Resolved: {m.resolved ? "Yes" : "No"}
-          </div>
-        </div>
-      ))}
-    </div>
+    </>
   );
 }

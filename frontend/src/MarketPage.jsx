@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
 import axios from "axios";
+import { useParams, Link } from "react-router-dom";
+import "./App.css";
 
 const API = "http://localhost:4000";
 
@@ -9,140 +10,264 @@ export default function MarketPage() {
   const marketId = parseInt(id);
 
   const [market, setMarket] = useState(null);
-  const [orderbookYes, setOrderbookYes] = useState({ buys: [], sells: [] });
-  const [orderbookNo, setOrderbookNo] = useState({ buys: [], sells: [] });
-  const [trades, setTrades] = useState([]);
-
   const [userId, setUserId] = useState(1);
 
   const [price, setPrice] = useState(0.5);
-  const [qty, setQty] = useState(10);
+  const [quantity, setQuantity] = useState(10);
 
-  async function load() {
-    const marketsRes = await axios.get(`${API}/markets`);
-    const m = marketsRes.data.find((x) => x.id === marketId);
-    setMarket(m);
+  const [yesOrderbook, setYesOrderbook] = useState({ buys: [], sells: [] });
+  const [noOrderbook, setNoOrderbook] = useState({ buys: [], sells: [] });
 
-    const yes = await axios.get(`${API}/orderbook/${marketId}/YES`);
-    const no = await axios.get(`${API}/orderbook/${marketId}/NO`);
-    const tr = await axios.get(`${API}/trades/${marketId}`);
-
-    setOrderbookYes(yes.data);
-    setOrderbookNo(no.data);
-    setTrades(tr.data);
-  }
-
-  async function placeOrder(side, direction) {
-    await axios.post(`${API}/orders`, {
-      userId: parseInt(userId),
-      marketId,
-      side,
-      direction,
-      price: parseFloat(price),
-      quantity: parseFloat(qty),
-    });
-
-    load();
-  }
+  const [trades, setTrades] = useState([]);
 
   useEffect(() => {
-    load();
-    const interval = setInterval(load, 1500);
+    loadAll();
+
+    const interval = setInterval(() => {
+      loadOrderbooks();
+      loadTrades();
+    }, 1500);
+
     return () => clearInterval(interval);
   }, []);
 
-  if (!market) return <div style={{ padding: 30 }}>Loading...</div>;
+  async function loadAll() {
+    await loadMarket();
+    await loadOrderbooks();
+    await loadTrades();
+  }
+
+  async function loadMarket() {
+    const res = await axios.get(`${API}/markets`);
+    const found = res.data.find((m) => m.id === marketId);
+    setMarket(found);
+  }
+
+  async function loadOrderbooks() {
+    const yes = await axios.get(`${API}/orderbook/${marketId}/YES`);
+    const no = await axios.get(`${API}/orderbook/${marketId}/NO`);
+    setYesOrderbook(yes.data);
+    setNoOrderbook(no.data);
+  }
+
+  async function loadTrades() {
+    const res = await axios.get(`${API}/trades/${marketId}`);
+    setTrades(res.data);
+  }
+
+  async function placeOrder(side, direction) {
+    try {
+      await axios.post(`${API}/orders`, {
+        userId: parseInt(userId),
+        marketId,
+        side,
+        direction,
+        price: parseFloat(price),
+        quantity: parseFloat(quantity),
+      });
+
+      await loadOrderbooks();
+      await loadTrades();
+    } catch (err) {
+      alert(err.response?.data?.error || err.message);
+    }
+  }
 
   return (
-    <div style={{ padding: 30, fontFamily: "Arial" }}>
-      <h1>{market.question}</h1>
-      <p style={{ color: "gray" }}>
-        Market #{market.id} | Resolved: {market.resolved ? "Yes" : "No"}
-      </p>
-
-      <div style={{ marginTop: 20 }}>
-        <label>User ID: </label>
-        <input
-          value={userId}
-          onChange={(e) => setUserId(e.target.value)}
-          style={{ width: 80 }}
-        />
-      </div>
-
-      <div style={{ marginTop: 20, border: "1px solid #ccc", padding: 15 }}>
-        <h3>Trade Panel</h3>
-
-        <div>
-          <label>Price (0 - 1): </label>
-          <input value={price} onChange={(e) => setPrice(e.target.value)} />
+    <>
+      {/* NAVBAR */}
+      <div className="navbar">
+        <div className="logo">
+          <Link to="/">Polyclone</Link>
         </div>
 
-        <div style={{ marginTop: 10 }}>
-          <label>Quantity: </label>
-          <input value={qty} onChange={(e) => setQty(e.target.value)} />
+        <div className="searchbar">
+          <input value={`Market #${marketId}`} disabled />
         </div>
 
-        <div style={{ marginTop: 15 }}>
-          <button onClick={() => placeOrder("YES", "BUY")}>Buy YES</button>
-          <button onClick={() => placeOrder("YES", "SELL")} style={{ marginLeft: 10 }}>
-            Sell YES
-          </button>
-          <button onClick={() => placeOrder("NO", "BUY")} style={{ marginLeft: 10 }}>
-            Buy NO
-          </button>
-          <button onClick={() => placeOrder("NO", "SELL")} style={{ marginLeft: 10 }}>
-            Sell NO
-          </button>
+        <div className="nav-actions">
+          <button className="btn">Log In</button>
+          <button className="btn btn-primary">Sign Up</button>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 20, marginTop: 30 }}>
-        <div style={{ flex: 1, border: "1px solid #ccc", padding: 15 }}>
-          <h3>YES Orderbook</h3>
-
-          <h4 style={{ color: "green" }}>BUY Orders</h4>
-          {orderbookYes.buys.map((o) => (
-            <div key={o.id}>
-              {o.price.toFixed(3)} | qty {o.quantity - o.filled}
+      <div className="container">
+        {/* MARKET HEADER */}
+        <div className="panel">
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontSize: "18px", fontWeight: 800 }}>
+                {market?.question || "Loading market..."}
+              </div>
+              <div className="small-muted" style={{ marginTop: "6px" }}>
+                Market ID: {marketId} •{" "}
+                {market?.resolved ? "Resolved" : "Live"}
+              </div>
             </div>
-          ))}
 
-          <h4 style={{ color: "red", marginTop: 15 }}>SELL Orders</h4>
-          {orderbookYes.sells.map((o) => (
-            <div key={o.id}>
-              {o.price.toFixed(3)} | qty {o.quantity - o.filled}
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <span className="badge">Demo Mode</span>
+              <Link className="btn" to="/">
+                Back
+              </Link>
             </div>
-          ))}
+          </div>
         </div>
 
-        <div style={{ flex: 1, border: "1px solid #ccc", padding: 15 }}>
-          <h3>NO Orderbook</h3>
+        {/* TRADE PANEL */}
+        <div className="row">
+          <div className="col">
+            <div className="panel">
+              <div style={{ fontSize: "16px", fontWeight: 800 }}>
+                Trade Panel
+              </div>
 
-          <h4 style={{ color: "green" }}>BUY Orders</h4>
-          {orderbookNo.buys.map((o) => (
-            <div key={o.id}>
-              {o.price.toFixed(3)} | qty {o.quantity - o.filled}
-            </div>
-          ))}
+              <div style={{ marginTop: "14px" }}>
+                <div className="small-muted">User ID</div>
+                <input
+                  className="input"
+                  value={userId}
+                  onChange={(e) => setUserId(e.target.value)}
+                />
+              </div>
 
-          <h4 style={{ color: "red", marginTop: 15 }}>SELL Orders</h4>
-          {orderbookNo.sells.map((o) => (
-            <div key={o.id}>
-              {o.price.toFixed(3)} | qty {o.quantity - o.filled}
+              <div style={{ marginTop: "14px" }}>
+                <div className="small-muted">Price (0 - 1)</div>
+                <input
+                  className="input"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                />
+              </div>
+
+              <div style={{ marginTop: "14px" }}>
+                <div className="small-muted">Quantity</div>
+                <input
+                  className="input"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                />
+              </div>
+
+              <div className="trade-buttons">
+                <button
+                  className="trade-btn buy"
+                  onClick={() => placeOrder("YES", "BUY")}
+                >
+                  Buy YES
+                </button>
+                <button
+                  className="trade-btn sell"
+                  onClick={() => placeOrder("YES", "SELL")}
+                >
+                  Sell YES
+                </button>
+              </div>
+
+              <div className="trade-buttons">
+                <button
+                  className="trade-btn buy"
+                  onClick={() => placeOrder("NO", "BUY")}
+                >
+                  Buy NO
+                </button>
+                <button
+                  className="trade-btn sell"
+                  onClick={() => placeOrder("NO", "SELL")}
+                >
+                  Sell NO
+                </button>
+              </div>
+
+              <div className="small-muted" style={{ marginTop: "14px" }}>
+                Orders are LIMIT orders. Matching happens instantly if prices
+                cross.
+              </div>
             </div>
-          ))}
+          </div>
         </div>
 
-        <div style={{ flex: 1, border: "1px solid #ccc", padding: 15 }}>
-          <h3>Recent Trades</h3>
+        {/* ORDERBOOKS + TRADES */}
+        <div className="row">
+          <div className="col">
+            <div className="panel">
+              <div style={{ fontSize: "15px", fontWeight: 800 }}>YES Orderbook</div>
 
-          {trades.map((t) => (
-            <div key={t.id}>
-              {t.side} @ {t.price.toFixed(3)} | qty {t.quantity}
+              <div style={{ marginTop: "12px" }}>
+                <div className="small-muted">BUY Orders</div>
+                {yesOrderbook.buys.map((o) => (
+                  <div key={o.id} className="list-item">
+                    <span style={{ color: "#22c55e", fontWeight: 700 }}>
+                      {o.price.toFixed(3)}
+                    </span>{" "}
+                    | qty {o.quantity - o.filled}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginTop: "14px" }}>
+                <div className="small-muted">SELL Orders</div>
+                {yesOrderbook.sells.map((o) => (
+                  <div key={o.id} className="list-item">
+                    <span style={{ color: "#ef4444", fontWeight: 700 }}>
+                      {o.price.toFixed(3)}
+                    </span>{" "}
+                    | qty {o.quantity - o.filled}
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
+          </div>
+
+          <div className="col">
+            <div className="panel">
+              <div style={{ fontSize: "15px", fontWeight: 800 }}>NO Orderbook</div>
+
+              <div style={{ marginTop: "12px" }}>
+                <div className="small-muted">BUY Orders</div>
+                {noOrderbook.buys.map((o) => (
+                  <div key={o.id} className="list-item">
+                    <span style={{ color: "#22c55e", fontWeight: 700 }}>
+                      {o.price.toFixed(3)}
+                    </span>{" "}
+                    | qty {o.quantity - o.filled}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginTop: "14px" }}>
+                <div className="small-muted">SELL Orders</div>
+                {noOrderbook.sells.map((o) => (
+                  <div key={o.id} className="list-item">
+                    <span style={{ color: "#ef4444", fontWeight: 700 }}>
+                      {o.price.toFixed(3)}
+                    </span>{" "}
+                    | qty {o.quantity - o.filled}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="col">
+            <div className="panel">
+              <div style={{ fontSize: "15px", fontWeight: 800 }}>Recent Trades</div>
+
+              <div style={{ marginTop: "12px" }}>
+                {trades.map((t) => (
+                  <div key={t.id} className="list-item">
+                    <b>{t.side}</b> @ {t.price.toFixed(3)} | qty {t.quantity}
+                  </div>
+                ))}
+
+                {trades.length === 0 && (
+                  <div className="small-muted">No trades yet.</div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
