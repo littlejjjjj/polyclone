@@ -9,6 +9,12 @@ app.use(cors());
 app.use(express.json());
 
 /**
+ * App metadata
+ */
+const APP_VERSION = "1.0.1";
+const START_TIME = new Date().toISOString();
+
+/**
  * Simple Matching Engine:
  * Matches BUY and SELL orders for the same market + side
  * BUY orders sorted by highest price first
@@ -176,10 +182,23 @@ async function updatePosition(userId, marketId, side, deltaShares, tradePrice) {
 }
 
 /**
- * ROOT ROUTE (fixes Cannot GET /)
+ * ROOT ROUTE
  */
 app.get("/", (req, res) => {
-  res.send("Polymarket Clone Backend is running. Try /health or /markets");
+  res.send(
+    `Polymarket Clone Backend is running (v${APP_VERSION}). Try /health or /markets`
+  );
+});
+
+/**
+ * VERSION ROUTE (new update)
+ */
+app.get("/version", (req, res) => {
+  res.json({
+    name: "polyclone-backend",
+    version: APP_VERSION,
+    startedAt: START_TIME,
+  });
 });
 
 /**
@@ -422,5 +441,6 @@ app.post("/resolve", async (req, res) => {
  * START SERVER
  */
 app.listen(4000, () => {
-  console.log("Backend running on http://localhost:4000");
+  console.log(`Backend running on http://localhost:4000 (v${APP_VERSION})`);
+  console.log(`Started at: ${START_TIME}`);
 });
