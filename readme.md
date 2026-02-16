@@ -1,8 +1,9 @@
-
 # Jovian Tan (littlejjjjj) Builder — Web3 • RWA • Futures • Automation • Fintech
 
 🔗 GitHub: https://github.com/littlejjjjj
+
 🔗 LinkedIn: https://www.linkedin.com/in/joviantan/
+
 📍 Based in Malaysia (Building globally)
 
 ---
@@ -88,7 +89,6 @@ This project exists as a research sandbox to explore:
 
 ## 📂 Repository Structure
 
-
 polyclone/
 
 ├── backend/
@@ -122,11 +122,36 @@ polyclone/
 └── README.md
 
 ---
-## ⚙️ Setup Guide (Local Development)
 
-### 1) Clone Repository
+# ⚙️ Setup Instructions (Local Development)
+
+This project runs as a **full-stack local simulation**:
+
+- Backend API (Express + Prisma + SQLite)
+- Frontend UI (React + Vite)
+
+### Requirements
+
+Make sure you have installed:
+
+- Node.js (v18+ recommended)
+- npm
+
+---
+
+## 1) Clone the Repository
 
 ```bash
 git clone https://github.com/littlejjjjj/polyclone.git
 cd polyclone
+```
+
+## 2) Backend Setup + Run
+
+`cd backend npm install cp .env.example .env npx prisma migrate dev --name init npm run dev`
+
+## 2) Frontend Setup + Run (Open a NEW Terminal)
+
+`cd frontend npm install npm run dev`
+
 ---
