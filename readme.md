@@ -148,10 +148,20 @@ cd polyclone
 
 ## 2) Backend Setup + Run
 
-`cd backend npm install cp .env.example .env npx prisma migrate dev --name init npm run dev`
+```
+cd backend
+npm install
+cp .env.example .env
+npx prisma migrate dev --name init
+npm run dev
+```
 
-## 2) Frontend Setup + Run (Open a NEW Terminal)
+## 3) Frontend Setup + Run (Open a NEW Terminal)
 
-`cd frontend npm install npm run dev`
+```
+cd frontend
+npm install
+npm run dev
+```
 
 ---
