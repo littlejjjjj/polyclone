@@ -133,26 +133,33 @@ AMM → In-memory constant product pool per market
 
 polyclone/
 
+
+<pre>
+```bash
+polyclone/
 ├── backend/
-│ ├── prisma/
-│ ├── index.js
-│ ├── package.json
-│ ├── .env.example
-│ └── dev.db (ignored in git)
+│   ├── prisma/
+│   ├── index.js
+│   ├── package.json
+│   ├── .env.example
+│   └── dev.db (ignored in git)
 │
 ├── frontend/
-│ ├── src/
-│ │ ├── MarketPage.jsx
-│ │ ├── MarketDetail.jsx
-│ │ ├── CLOBTrading.jsx
-│ │ ├── AMMTrading.jsx
-│ │ └── App.jsx
-│ ├── package.json
-│ └── vite.config.js
+│   ├── src/
+│   │   ├── MarketPage.jsx
+│   │   ├── MarketDetail.jsx
+│   │   ├── CLOBTrading.jsx
+│   │   ├── AMMTrading.jsx
+│   │   └── App.jsx
+│   │
+│   ├── package.json
+│   └── vite.config.js
 │
 ├── .gitignore
 ├── LICENSE
 └── README.md
+```
+</pre>
 
 ---
 
