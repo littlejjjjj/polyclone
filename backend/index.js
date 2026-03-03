@@ -1,269 +1,62 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 const app = express();
+const PORT = 4000;
 
 app.use(cors());
 app.use(express.json());
 
-/**
- * App metadata
- */
-const APP_VERSION = "1.0.1";
-const START_TIME = new Date().toISOString();
+/* =========================
+   IN-MEMORY ENGINES
+========================= */
 
-/**
- * Simple Matching Engine:
- * Matches BUY and SELL orders for the same market + side
- * BUY orders sorted by highest price first
- * SELL orders sorted by lowest price first
- * Executes trades when BUY price >= SELL price
- */
-async function matchOrders(marketId, side) {
-  while (true) {
-    const bestBuy = await prisma.order.findFirst({
-      where: {
-        marketId,
-        side,
-        direction: "BUY",
-        status: { in: ["OPEN", "PARTIAL"] },
-      },
-      orderBy: { price: "desc" },
-    });
+const orderbooks = {}; // CLOB
+const pools = {};      // AMM
 
-    const bestSell = await prisma.order.findFirst({
-      where: {
-        marketId,
-        side,
-        direction: "SELL",
-        status: { in: ["OPEN", "PARTIAL"] },
-      },
-      orderBy: { price: "asc" },
-    });
+/* =========================
+   HEALTH
+========================= */
 
-    // no orders available
-    if (!bestBuy || !bestSell) break;
-
-    // no match possible
-    if (bestBuy.price < bestSell.price) break;
-
-    const buyRemaining = bestBuy.quantity - bestBuy.filled;
-    const sellRemaining = bestSell.quantity - bestSell.filled;
-
-    const tradeQty = Math.min(buyRemaining, sellRemaining);
-
-    // execute at sell price (ask price)
-    const tradePrice = bestSell.price;
-
-    const tradeCost = tradeQty * tradePrice;
-
-    // get users
-    const buyer = await prisma.user.findUnique({ where: { id: bestBuy.userId } });
-    const seller = await prisma.user.findUnique({ where: { id: bestSell.userId } });
-
-    if (!buyer || !seller) break;
-
-    // buyer must have balance
-    if (buyer.balance < tradeCost) {
-      // cancel buy order if insufficient funds
-      await prisma.order.update({
-        where: { id: bestBuy.id },
-        data: { status: "CANCELLED" },
-      });
-      continue;
-    }
-
-    // update order fills
-    const newBuyFilled = bestBuy.filled + tradeQty;
-    const newSellFilled = bestSell.filled + tradeQty;
-
-    const buyStatus = newBuyFilled >= bestBuy.quantity ? "FILLED" : "PARTIAL";
-    const sellStatus = newSellFilled >= bestSell.quantity ? "FILLED" : "PARTIAL";
-
-    await prisma.order.update({
-      where: { id: bestBuy.id },
-      data: { filled: newBuyFilled, status: buyStatus },
-    });
-
-    await prisma.order.update({
-      where: { id: bestSell.id },
-      data: { filled: newSellFilled, status: sellStatus },
-    });
-
-    // record trade
-    await prisma.trade.create({
-      data: {
-        marketId,
-        buyerId: buyer.id,
-        sellerId: seller.id,
-        side,
-        price: tradePrice,
-        quantity: tradeQty,
-      },
-    });
-
-    // update balances
-    await prisma.user.update({
-      where: { id: buyer.id },
-      data: { balance: { decrement: tradeCost } },
-    });
-
-    await prisma.user.update({
-      where: { id: seller.id },
-      data: { balance: { increment: tradeCost } },
-    });
-
-    // update positions
-    await updatePosition(buyer.id, marketId, side, tradeQty, tradePrice);
-    await updatePosition(seller.id, marketId, side, -tradeQty, tradePrice);
-  }
-}
-
-/**
- * Update position for a user.
- * If shares increase, avgPrice updates using weighted average.
- * If shares decrease, avgPrice stays the same.
- */
-async function updatePosition(userId, marketId, side, deltaShares, tradePrice) {
-  let pos = await prisma.position.findFirst({
-    where: { userId, marketId, side },
-  });
-
-  if (!pos) {
-    pos = await prisma.position.create({
-      data: {
-        userId,
-        marketId,
-        side,
-        shares: 0,
-        avgPrice: 0,
-      },
-    });
-  }
-
-  const oldShares = pos.shares;
-  const newShares = oldShares + deltaShares;
-
-  // selling all shares (or going negative)
-  if (newShares <= 0) {
-    await prisma.position.update({
-      where: { id: pos.id },
-      data: {
-        shares: newShares,
-      },
-    });
-    return;
-  }
-
-  // if buying shares (deltaShares positive)
-  if (deltaShares > 0) {
-    const oldCost = pos.avgPrice * oldShares;
-    const newCost = tradePrice * deltaShares;
-    const avgPrice = (oldCost + newCost) / newShares;
-
-    await prisma.position.update({
-      where: { id: pos.id },
-      data: {
-        shares: newShares,
-        avgPrice,
-      },
-    });
-  } else {
-    // selling shares, avg price unchanged
-    await prisma.position.update({
-      where: { id: pos.id },
-      data: {
-        shares: newShares,
-      },
-    });
-  }
-}
-
-/**
- * ROOT ROUTE
- */
-app.get("/", (req, res) => {
-  res.send(
-    `Polymarket Clone Backend is running (v${APP_VERSION}). Try /health or /markets`
-  );
-});
-
-/**
- * VERSION ROUTE (new update)
- */
-app.get("/version", (req, res) => {
-  res.json({
-    name: "polyclone-backend",
-    version: APP_VERSION,
-    startedAt: START_TIME,
-  });
-});
-
-/**
- * HEALTH CHECK
- */
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "polyclone-backend" });
+  res.json({ status: "ok" });
 });
 
-/**
- * CREATE USER
- */
-app.post("/users", async (req, res) => {
+/* =========================
+   CREATE MARKET
+========================= */
+
+app.post("/api/markets", async (req, res) => {
   try {
-    const { username } = req.body;
+    const { title, engineType } = req.body;
 
-    if (!username) {
-      return res.status(400).json({ error: "username is required" });
-    }
-
-    const user = await prisma.user.create({
-      data: { username },
-    });
-
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * LIST USERS
- */
-app.get("/users", async (req, res) => {
-  const users = await prisma.user.findMany({
-    orderBy: { id: "asc" },
-  });
-  res.json(users);
-});
-
-/**
- * CREATE MARKET
- */
-app.post("/markets", async (req, res) => {
-  try {
-    const { question } = req.body;
-
-    if (!question) {
-      return res.status(400).json({ error: "question is required" });
+    if (!title || !engineType) {
+      return res.status(400).json({ error: "Missing fields" });
     }
 
     const market = await prisma.market.create({
-      data: { question },
+      data: {
+        title,
+        engineType,
+        expiryTime: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
     });
 
     res.json(market);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Create failed" });
   }
 });
 
-/**
- * LIST MARKETS
- */
-app.get("/markets", async (req, res) => {
+/* =========================
+   GET MARKETS
+========================= */
+
+app.get("/api/markets", async (req, res) => {
   const markets = await prisma.market.findMany({
     orderBy: { createdAt: "desc" },
   });
@@ -271,176 +64,201 @@ app.get("/markets", async (req, res) => {
   res.json(markets);
 });
 
-/**
- * PLACE LIMIT ORDER
- */
-app.post("/orders", async (req, res) => {
+/* =========================
+   DELETE MARKET
+========================= */
+
+app.delete("/api/markets/:id", async (req, res) => {
   try {
-    const { userId, marketId, side, direction, price, quantity } = req.body;
+    const { id } = req.params;
 
-    if (!userId || !marketId || !side || !direction || !price || !quantity) {
-      return res.status(400).json({
-        error: "userId, marketId, side, direction, price, quantity required",
-      });
-    }
-
-    if (!["YES", "NO"].includes(side)) {
-      return res.status(400).json({ error: "side must be YES or NO" });
-    }
-
-    if (!["BUY", "SELL"].includes(direction)) {
-      return res.status(400).json({ error: "direction must be BUY or SELL" });
-    }
-
-    const market = await prisma.market.findUnique({
-      where: { id: marketId },
+    await prisma.market.delete({
+      where: { id: Number(id) },
     });
 
-    if (!market) {
-      return res.status(404).json({ error: "Market not found" });
-    }
+    delete orderbooks[id];
+    delete pools[id];
 
-    if (market.resolved) {
-      return res.status(400).json({ error: "Market already resolved" });
-    }
-
-    const order = await prisma.order.create({
-      data: {
-        userId,
-        marketId,
-        side,
-        direction,
-        type: "LIMIT",
-        price: parseFloat(price),
-        quantity: parseFloat(quantity),
-        filled: 0,
-        status: "OPEN",
-      },
-    });
-
-    // Match orders immediately after inserting new one
-    await matchOrders(marketId, side);
-
-    res.json(order);
+    res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Delete failed" });
   }
 });
 
-/**
- * GET ORDERBOOK FOR MARKET + SIDE
- */
-app.get("/orderbook/:marketId/:side", async (req, res) => {
-  const marketId = parseInt(req.params.marketId);
-  const side = req.params.side;
+/* =========================
+   CLOB ORDERBOOK
+========================= */
 
-  if (!["YES", "NO"].includes(side)) {
-    return res.status(400).json({ error: "side must be YES or NO" });
+app.get("/api/markets/:id/orderbook", (req, res) => {
+  const { id } = req.params;
+
+  if (!orderbooks[id]) {
+    orderbooks[id] = { bids: [], asks: [] };
   }
 
-  const buys = await prisma.order.findMany({
-    where: {
-      marketId,
-      side,
-      direction: "BUY",
-      status: { in: ["OPEN", "PARTIAL"] },
-    },
-    orderBy: { price: "desc" },
-  });
-
-  const sells = await prisma.order.findMany({
-    where: {
-      marketId,
-      side,
-      direction: "SELL",
-      status: { in: ["OPEN", "PARTIAL"] },
-    },
-    orderBy: { price: "asc" },
-  });
-
-  res.json({ buys, sells });
+  res.json(orderbooks[id]);
 });
 
-/**
- * GET TRADES FOR MARKET
- */
-app.get("/trades/:marketId", async (req, res) => {
-  const marketId = parseInt(req.params.marketId);
+app.post("/api/markets/:id/order", (req, res) => {
+  const { id } = req.params;
+  const { side, price, size } = req.body;
 
-  const trades = await prisma.trade.findMany({
-    where: { marketId },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+  if (!orderbooks[id]) {
+    orderbooks[id] = { bids: [], asks: [] };
+  }
 
-  res.json(trades);
-});
+  const book = orderbooks[id];
 
-/**
- * GET POSITIONS FOR USER
- */
-app.get("/positions/:userId", async (req, res) => {
-  const userId = parseInt(req.params.userId);
+  let remaining = Number(size);
+  const orderPrice = Number(price);
 
-  const positions = await prisma.position.findMany({
-    where: { userId },
-  });
+  if (side === "buy") {
+    // Try match against lowest ask
+    book.asks.sort((a, b) => a.price - b.price);
 
-  res.json(positions);
-});
+    while (remaining > 0 && book.asks.length > 0) {
+      const bestAsk = book.asks[0];
 
-/**
- * RESOLVE MARKET (ADMIN)
- */
-app.post("/resolve", async (req, res) => {
-  try {
-    const { marketId, outcome } = req.body;
+      if (orderPrice >= bestAsk.price) {
+        const tradeSize = Math.min(remaining, bestAsk.size);
 
-    if (!marketId || !outcome) {
-      return res.status(400).json({ error: "marketId and outcome required" });
+        bestAsk.size -= tradeSize;
+        remaining -= tradeSize;
+
+        if (bestAsk.size === 0) {
+          book.asks.shift();
+        }
+      } else {
+        break;
+      }
     }
 
-    if (!["YES", "NO"].includes(outcome)) {
-      return res.status(400).json({ error: "outcome must be YES or NO" });
-    }
-
-    const market = await prisma.market.findUnique({ where: { id: marketId } });
-    if (!market) return res.status(404).json({ error: "Market not found" });
-
-    if (market.resolved) {
-      return res.status(400).json({ error: "Market already resolved" });
-    }
-
-    // mark market resolved
-    await prisma.market.update({
-      where: { id: marketId },
-      data: { resolved: true, outcome },
-    });
-
-    // payout winners: each share = $1
-    const winningPositions = await prisma.position.findMany({
-      where: { marketId, side: outcome },
-    });
-
-    for (const pos of winningPositions) {
-      const payout = pos.shares * 1.0;
-
-      await prisma.user.update({
-        where: { id: pos.userId },
-        data: { balance: { increment: payout } },
+    if (remaining > 0) {
+      book.bids.push({
+        id: Date.now(),
+        price: orderPrice,
+        size: remaining,
       });
+
+      book.bids.sort((a, b) => b.price - a.price);
     }
 
-    res.json({ message: `Market ${marketId} resolved as ${outcome}` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } else {
+    // SELL
+    book.bids.sort((a, b) => b.price - a.price);
+
+    while (remaining > 0 && book.bids.length > 0) {
+      const bestBid = book.bids[0];
+
+      if (orderPrice <= bestBid.price) {
+        const tradeSize = Math.min(remaining, bestBid.size);
+
+        bestBid.size -= tradeSize;
+        remaining -= tradeSize;
+
+        if (bestBid.size === 0) {
+          book.bids.shift();
+        }
+      } else {
+        break;
+      }
+    }
+
+    if (remaining > 0) {
+      book.asks.push({
+        id: Date.now(),
+        price: orderPrice,
+        size: remaining,
+      });
+
+      book.asks.sort((a, b) => a.price - b.price);
+    }
   }
+
+  res.json(book);
 });
 
-/**
- * START SERVER
- */
-app.listen(4000, () => {
-  console.log(`Backend running on http://localhost:4000 (v${APP_VERSION})`);
-  console.log(`Started at: ${START_TIME}`);
+/* =========================
+   AMM
+========================= */
+
+app.post("/api/markets/:id/amm/buy", (req, res) => {
+  const { id } = req.params;
+  const { amount } = req.body;
+
+  if (!pools[id]) {
+    pools[id] = { yes: 1000, no: 1000 };
+  }
+
+  const pool = pools[id];
+  const k = pool.yes * pool.no;
+
+  pool.yes += Number(amount);
+  pool.no = k / pool.yes;
+
+  res.json(pool);
+});
+
+/* =========================
+   AMM ENGINE
+========================= */
+
+app.get("/api/markets/:id/amm", (req, res) => {
+  const { id } = req.params;
+
+  if (!pools[id]) {
+    pools[id] = { yes: 1000, no: 1000 };
+  }
+
+  const pool = pools[id];
+
+  const priceYes = pool.yes / (pool.yes + pool.no);
+  const priceNo = pool.no / (pool.yes + pool.no);
+
+  res.json({
+    ...pool,
+    priceYes,
+    priceNo,
+  });
+});
+
+/* BUY YES */
+app.post("/api/markets/:id/amm/buy-yes", (req, res) => {
+  const { id } = req.params;
+  const { amount } = req.body;
+
+  if (!pools[id]) {
+    pools[id] = { yes: 1000, no: 1000 };
+  }
+
+  const pool = pools[id];
+  const k = pool.yes * pool.no;
+
+  pool.yes += Number(amount);
+  pool.no = k / pool.yes;
+
+  res.json(pool);
+});
+
+/* BUY NO */
+app.post("/api/markets/:id/amm/buy-no", (req, res) => {
+  const { id } = req.params;
+  const { amount } = req.body;
+
+  if (!pools[id]) {
+    pools[id] = { yes: 1000, no: 1000 };
+  }
+
+  const pool = pools[id];
+  const k = pool.yes * pool.no;
+
+  pool.no += Number(amount);
+  pool.yes = k / pool.no;
+
+  res.json(pool);
+});
+
+app.listen(PORT, () => {
+  console.log("Server running on port 4000");
 });
